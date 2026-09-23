@@ -10,16 +10,13 @@ average statistics or actually tracking the conditioning signal.
 from __future__ import annotations
 
 import json
+from evaluation_provenance import sample_labels, finite_json
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim_fn
 
-
-GRID_PATH = Path(
-    "/Users/amyngo/SS-SD/outputs/eval/smoke_test/eval_grid1.png"
-)
 
 # The matplotlib figure was saved with figsize=(6, 3*n) at dpi=120 +
 # bbox_inches="tight".  The tight bbox trims whitespace, so we detect
@@ -110,24 +107,19 @@ def _edge_iou(a: np.ndarray, b: np.ndarray, thresh: float = 0.15) -> float:
     return float(inter / union) if union > 0 else 0.0
 
 
-def main(grid_path: Path | None = None) -> None:
-    path = grid_path if grid_path is not None else GRID_PATH
+def main(grid_path: Path, metadata_path: Path | None = None) -> None:
+    path = grid_path
     print(f"Reading grid: {path}")
     img = np.asarray(Image.open(path).convert("RGB"))
     rows = _find_tile_rows(img)
     print(f"Detected {len(rows)} row bands")
 
     pairs: list[dict] = []
-    labels = [
-        ("Suturing_C005 f=30",   "G1"),
-        ("Suturing_C005 f=2520", "G11"),
-        ("Suturing_C005 f=1320", "G2"),
-        ("Suturing_C005 f=2100", "G3"),
-    ]
+    labels = sample_labels(metadata_path or path.parent / "metadata.json", len(rows))
     for i, (y0, y1) in enumerate(rows):
         cols = _find_tile_cols(img, y0, y1)
-        if len(cols) < 2:
-            continue
+        if len(cols) != 2:
+            raise ValueError(f"Expected two image tiles in row {i}; found {len(cols)}")
         x0a, x1a = cols[0]
         x0b, x1b = cols[1]
         real = img[y0:y1, x0a:x1a]
@@ -145,6 +137,10 @@ def main(grid_path: Path | None = None) -> None:
         })
 
     print(f"\nExtracted {len(pairs)} (real, gen) pairs")
+    common_size = (min(p['real'].shape[1] for p in pairs), min(p['real'].shape[0] for p in pairs))
+    for p in pairs:
+        for key in ['real', 'gen']:
+            p[key] = np.asarray(Image.fromarray(p[key]).resize(common_size, Image.BILINEAR))
     print(f"Tile size after resize: {pairs[0]['real'].shape}")
 
     print("\n" + "=" * 92)
@@ -214,9 +210,9 @@ def main(grid_path: Path | None = None) -> None:
         print(f"gen_{i}     {row}")
 
     diag_psnr = np.diag(psnr_mat).mean()
-    off_psnr = (psnr_mat.sum() - np.diag(psnr_mat).sum()) / (n * n - n)
+    off_psnr = psnr_mat[~np.eye(n, dtype=bool)].mean()
     diag_ssim = np.diag(ssim_mat).mean()
-    off_ssim = (ssim_mat.sum() - np.diag(ssim_mat).sum()) / (n * n - n)
+    off_ssim = ssim_mat[~np.eye(n, dtype=bool)].mean()
     print(f"\nMean diagonal PSNR  = {diag_psnr:.2f} dB  "
           f"| off-diagonal = {off_psnr:.2f} dB  "
           f"| delta = {diag_psnr - off_psnr:+.2f} dB")
@@ -224,9 +220,13 @@ def main(grid_path: Path | None = None) -> None:
           f"| off-diagonal = {off_ssim:.4f}    "
           f"| delta = {diag_ssim - off_ssim:+.4f}")
 
-    out_path = path.parent / "metrics.json"
+    out_path = path.with_suffix(".metrics.json")
     out_path.write_text(
-        json.dumps({
+        json.dumps(finite_json({
+            "measurement_scope": "Resized crops from a plotted grid; exploratory, not raw-frame benchmark",
+            "nonfinite_metric_policy": "null denotes infinite/undefined values (e.g. PSNR for identical images)",
+            "grid_path": str(path.resolve()),
+            "metadata_path": str(metadata_path or path.parent / "metadata.json"),
             "per_sample": records,
             "mean_psnr_db": round(float(np.mean(per_sample_psnr)), 3),
             "mean_ssim": round(float(np.mean(per_sample_ssim)), 4),
@@ -238,7 +238,7 @@ def main(grid_path: Path | None = None) -> None:
                 "diag_minus_off_psnr_db": round(float(diag_psnr - off_psnr), 3),
                 "diag_minus_off_ssim": round(float(diag_ssim - off_ssim), 4),
             },
-        }, indent=2),
+        }), indent=2, allow_nan=False),
         encoding="utf-8",
     )
     print(f"\nWrote {out_path}")
@@ -250,8 +250,9 @@ if __name__ == "__main__":
     _p = argparse.ArgumentParser(description="Metrics on eval_grid PNG.")
     _p.add_argument(
         "--grid_path",
-        default=str(GRID_PATH),
-        help="Path to eval_grid.png (default: built-in smoke path).",
+        required=True,
+        help="Path to evaluation grid PNG.",
     )
+    _p.add_argument("--metadata", type=Path, help="Sample metadata JSON; defaults to sibling metadata.json")
     _a = _p.parse_args()
-    main(grid_path=Path(_a.grid_path))
+    main(grid_path=Path(_a.grid_path), metadata_path=_a.metadata)
