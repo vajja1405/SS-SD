@@ -25,3 +25,7 @@ google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
 pytorch-fid
+
+# Inference optimization (scripts/optimize_encoder.py)
+onnx>=1.16
+onnxruntime>=1.18

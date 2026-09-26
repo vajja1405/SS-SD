@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-26",
+  "weights": "seeded random init",
+  "parameters": 30501888,
+  "hardware": "arm64 CPU, 4 threads",
+  "size_mb": {
+    "fp32": 116.4,
+    "int8": 29.3
+  },
+  "batches": {
+    "1": {
+      "torch_fp32": {
+        "p50_ms": 2.007,
+        "p95_ms": 2.634
+      },
+      "ort_fp32": {
+        "p50_ms": 1.912,
+        "p95_ms": 1.93
+      },
+      "ort_int8": {
+        "p50_ms": 0.429,
+        "p95_ms": 0.471
+      },
+      "ort_fp32_vs_torch": {
+        "cosine_mean": 1.0,
+        "cosine_min": 1.0,
+        "max_abs_err": 3e-06
+      },
+      "ort_int8_vs_torch": {
+        "cosine_mean": 0.999924,
+        "cosine_min": 0.999924,
+        "max_abs_err": 0.047147
+      }
+    },
+    "16": {
+      "torch_fp32": {
+        "p50_ms": 4.649,
+        "p95_ms": 4.996
+      },
+      "ort_fp32": {
+        "p50_ms": 4.638,
+        "p95_ms": 5.483
+      },
+      "ort_int8": {
+        "p50_ms": 1.996,
+        "p95_ms": 2.718
+      },
+      "ort_fp32_vs_torch": {
+        "cosine_mean": 1.0,
+        "cosine_min": 1.0,
+        "max_abs_err": 5e-06
+      },
+      "ort_int8_vs_torch": {
+        "cosine_mean": 0.999904,
+        "cosine_min": 0.999858,
+        "max_abs_err": 0.074002
+      }
+    }
+  }
+}

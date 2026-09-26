@@ -325,3 +325,22 @@ Not yet / scaffolded only:
   downstream analysis.
 - No temporal loss during training; multi-frame coherence relies on
   fixed-seed sampling.
+
+## Inference optimization: KinematicEncoder → ONNX → INT8 (September 26, 2026)
+
+The encoder's last layer projects 512 features to 77 × 768 conditioning tokens, so the module carries
+**30.5M parameters**. `scripts/optimize_encoder.py` exports it to ONNX (opset 17, dynamic batch),
+checks the graph, applies dynamic INT8 weight quantization with ONNX Runtime, and benchmarks on CPU (arm64 CPU, 4 threads):
+
+| | Size | Batch 1 p50 | Batch 16 p50 | Output vs PyTorch |
+|---|---|---|---|---|
+| PyTorch FP32 | – | 2.007 ms | 4.649 ms | reference |
+| ONNX Runtime FP32 | 116.4 MB | 1.912 ms | 4.638 ms | max abs error 5e-06 |
+| ONNX Runtime INT8 | 29.3 MB | 0.429 ms | 1.996 ms | cosine ≥ 0.999858 |
+
+INT8 makes the encoder **4.0x smaller** and **4.7x faster at batch 1**
+(2.3x at batch 16). The trained checkpoint lives on Colab, so these runs use
+seeded weights: size and latency are properties of the architecture, while output fidelity must be re-checked with
+`--checkpoint` on the trained encoder before relying on INT8 in generation. The U-Net (the dominant cost) and TensorRT
+on an NVIDIA GPU are the next step and were not run here. `tests/test_encoder_export.py` checks export parity and INT8
+fidelity on a small encoder.
