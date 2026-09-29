@@ -1,0 +1,87 @@
+{
+ "generated": "2026-09-29 11:01",
+ "frames": {
+  "annotated": 40,
+  "total": 40
+ },
+ "trials": [
+  "B001:capture1",
+  "C001:capture1"
+ ],
+ "annotators": 1,
+ "prelabels_shown": {
+  "compared": 23,
+  "accepted_iou_0.5": 18,
+  "saved_unchanged": 17,
+  "acceptance_rate": 0.783,
+  "median_iou": 1.0,
+  "median_center_error_px": 0.0,
+  "tools_missed": 2,
+  "extra_boxes_deleted": 3
+ },
+ "prelabels_hidden_unbiased": {
+  "compared": 17,
+  "accepted_iou_0.5": 11,
+  "saved_unchanged": 0,
+  "acceptance_rate": 0.647,
+  "median_iou": 0.604,
+  "median_center_error_px": 20.6,
+  "tools_missed": 0,
+  "extra_boxes_deleted": 7
+ },
+ "timing": {
+  "learning": {
+   "frames": 14,
+   "boxes_saved": 14,
+   "boxes_per_frame": 1.0,
+   "median_seconds_per_frame": 6.7,
+   "median_seconds_per_box": 6.7
+  },
+  "shown": {
+   "frames": 14,
+   "boxes_saved": 25,
+   "boxes_per_frame": 1.79,
+   "median_seconds_per_frame": 4.5,
+   "median_seconds_per_box": 2.5
+  },
+  "hidden": {
+   "frames": 12,
+   "boxes_saved": 17,
+   "boxes_per_frame": 1.42,
+   "median_seconds_per_frame": 5.0,
+   "median_seconds_per_box": 3.7
+  }
+ },
+ "models_at_end": {
+  "B001:capture1": {
+   "left_tool": {
+    "frames": 15,
+    "model": "position_axis",
+    "loo_error_px": 16.9
+   },
+   "right_tool": {
+    "frames": 12,
+    "model": "position",
+    "loo_error_px": 17.9
+   }
+  },
+  "C001:capture1": {
+   "left_tool": {
+    "frames": 14,
+    "model": "position_axis",
+    "loo_error_px": 9.8
+   },
+   "right_tool": {
+    "frames": 15,
+    "model": "position_axis",
+    "loo_error_px": 14.5
+   }
+  }
+ },
+ "notes": [
+  "Hidden pre-labels are compared with boxes drawn without seeing them: the unbiased accuracy.",
+  "Shown pre-labels can anchor the annotator; acceptance above the hidden accuracy suggests anchoring.",
+  "Learning frames come first in each trial, so their times also include practice.",
+  "One annotator and 40 frames: medians and counts, not significance tests."
+ ]
+}

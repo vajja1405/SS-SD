@@ -43,6 +43,7 @@ test('annotate with the mouse, then accept and edit kinematics pre-labels', asyn
     }
     const left = await readBox(page, 'left_tool');
     expect(Math.abs(left[0] - truth[0].x1)).toBeLessThanOrEqual(2);
+    await page.waitForTimeout(350);                 // a person needs to see the item first
     await page.keyboard.press('Enter');
   }
 
@@ -53,6 +54,7 @@ test('annotate with the mouse, then accept and edit kinematics pre-labels', asyn
   const pre = await readBox(page, 'right_tool');
   expect(Math.abs(pre[0] - truth5[1].x1)).toBeLessThanOrEqual(15);
   await expect(page.getByTestId('boxes')).toContainText('pre-label');
+  await page.waitForTimeout(350);                 // a person needs to see the item first
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('acceptance')).toHaveText(/\d+%/);
 

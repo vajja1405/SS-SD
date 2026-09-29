@@ -410,6 +410,23 @@ Walkthrough on synthetic demo frames (captured by `annotation_ui/storyboard.mjs`
   are reported separately, and a reload keeps a frame's condition.
 - **Results:** none are reported until a real annotation session exists.
 
+**Pilot results (September 29, 2026).** One annotator boxed 40 real frames (20 each from trials B001 and C001)
+in A/B mode; report: `docs/box-annotation-pilot-2026-09-29.json` (`scripts/pilot_report.py`).
+- **Accuracy (hidden frames, the unbiased check):** pre-labels compared with boxes drawn without seeing them
+  overlapped at IoU ≥ 0.5 for 11 of 17 instruments (65%), with a
+  median IoU of 0.604 and a median centre error of 20.6 px.
+- **Kept when shown:** shown pre-labels were kept 18 of 23 times
+  (78%), 17 unchanged. Acceptance above the hidden accuracy suggests some
+  imperfect pre-labels were accepted as shown (anchoring), which is why the hidden frames are the headline.
+- **Time:** 2.5 s per saved box with pre-labels vs. 3.7 s
+  without, on interleaved frames of the same trials. Per frame it was 4.5 vs.
+  5.0 s, but hidden frames averaged 1.42 boxes and shown
+  frames 1.79. The learning frames before any model took 6.7 s
+  per box, which also includes practice.
+- **Limits:** one annotator and 40 frames, so these are medians and counts, not significance tests.
+- **Fix from the parallel text-labeling pilot:** it showed double presses labeling unseen items, so `Enter` now
+  needs 300 ms on a frame and ignores key repeat.
+
 Tests: `tests/test_box_annotation.py` covers the projection recovering a known camera, model selection,
 off-screen handling, acceptance and timing metrics, validation, YOLO export, and frame/kinematics pairing
 on a generated video. `annotation_ui/src/geometry.test.ts` covers box geometry. `annotation_ui/e2e/`

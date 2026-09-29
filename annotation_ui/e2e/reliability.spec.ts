@@ -37,6 +37,7 @@ test('a save whose response is lost is retried and stored once', async ({ page }
       await route.continue();
     }
   });
+  await page.waitForTimeout(350);                 // a person needs to see the item first
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('progress')).toContainText('Frame 2 of 24');
   const saved = await (await page.request.get(`/api/frames/${id}`)).json();
@@ -63,10 +64,12 @@ test('a second tab that saved first causes a conflict, not a silent overwrite', 
   expect(await frameId(b)).toBe(id);
   await a.keyboard.press('1');
   await draw(a, 50, 50, 120, 110);
+  await a.waitForTimeout(350);                 // a person needs to see the item first
   await a.keyboard.press('Enter');
   await expect(a.getByTestId('progress')).not.toContainText(`#${Number(id.slice(-3))} `);
   await b.keyboard.press('1');
   await draw(b, 200, 150, 260, 210);
+  await b.waitForTimeout(350);                 // a person needs to see the item first
   await b.keyboard.press('Enter');
   await expect(b.getByTestId('conflict')).toBeVisible();
   await b.getByRole('button', { name: 'Load the saved boxes' }).click();
@@ -74,9 +77,24 @@ test('a second tab that saved first causes a conflict, not a silent overwrite', 
   await expect(b.getByTestId('box-left_tool')).toHaveText([stored.x1, stored.y1, stored.x2, stored.y2].map(Math.round).join(', '));
   await b.keyboard.press('1');
   await draw(b, 200, 150, 260, 210);
+  await b.waitForTimeout(350);                 // a person needs to see the item first
   await b.keyboard.press('Enter');                     // now based on the saved version: no conflict
   await expect(b.getByTestId('conflict')).toHaveCount(0);
   const saved = await (await b.request.get(`/api/frames/${id}`)).json();
   expect(saved.version).toBe(2);
   expect(Math.abs(saved.boxes.find((x: { tool: string }) => x.tool === 'left_tool').x1 - 200)).toBeLessThanOrEqual(1);
+});
+
+test('a double Enter saves one frame, not the next one unseen', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('canvas').waitFor();
+  const start = (await (await page.request.get('/api/stats')).json()).frames.annotated;
+  await page.keyboard.press('1');
+  await draw(page, 100, 100, 160, 150);
+  await page.waitForTimeout(350);                 // a person needs to see the item first
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');                  // arrives as the next frame loads
+  await page.waitForTimeout(800);
+  const after = (await (await page.request.get('/api/stats')).json()).frames.annotated;
+  expect(after - start).toBe(1);
 });

@@ -31,6 +31,10 @@ interface Stats {
   seconds_per_frame: Record<'with_prelabels' | 'without_prelabels', { frames: number; median: number | null }>;
 }
 
+// Ignore Enter this soon after a frame loads, and ignore key repeat: otherwise a double press or a held key
+// would save the next frame's pre-labels unseen.
+const MIN_DWELL_MS = 300;
+
 const COLORS: Record<Tool, string> = { left_tool: '#1f9d8a', right_tool: '#d9822b' };
 
 type Drag =
@@ -212,10 +216,13 @@ export function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      if ((e.target as HTMLElement).tagName === 'INPUT' || e.repeat) return;
       if (e.key === '1') setActive('left_tool');
       else if (e.key === '2') setActive('right_tool');
-      else if (e.key === 'Enter') { e.preventDefault(); void save(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (performance.now() - shownAt.current >= MIN_DWELL_MS) void save();
+      }
       else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); removeSelected(); }
       else return;
     };
