@@ -379,6 +379,14 @@ python scripts/annotate_boxes.py --demo          # synthetic frames with a known
 cd annotation_ui && npm install && npm run build # UI at http://127.0.0.1:8780
 ```
 
+Walkthrough on synthetic demo frames (captured by `annotation_ui/storyboard.mjs`):
+
+| 1. The first frames are boxed by hand | 2. Kinematics pre-labels (dashed) |
+|---|---|
+| ![Drawn by hand](docs/images/boxes-1-drawn-by-hand.png) | ![Pre-labels](docs/images/boxes-2-kinematics-prelabels.png) |
+| **3. A/B mode hides pre-labels to measure them** | **4. A stale tab gets a conflict, not an overwrite** |
+| ![Hidden](docs/images/boxes-3-hidden-for-measurement.png) | ![Conflict](docs/images/boxes-4-conflict-between-tabs.png) |
+
 **Reliability.**
 - **Versioned saves:** each save carries the version the annotator loaded. A stale tab gets HTTP 409 with the
   stored boxes and chooses to load them or overwrite. Re-sending identical boxes, as a retry does, is a no-op.
