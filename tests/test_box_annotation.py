@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from suturing_pipeline.annotation.frames import demo_frames, demo_truth, jigsaws_frames
 from suturing_pipeline.annotation.projection import KIN_BLOCK, Box, KinematicsBoxModel, iou
 from suturing_pipeline.annotation.server import create_app
-from suturing_pipeline.annotation.session import AnnotationSession, ValidationError
+from suturing_pipeline.annotation.session import AnnotationSession, ConflictError, ValidationError
 
 
 def _kin(rng, axis_tilt=0.0):
@@ -146,3 +146,61 @@ def test_http_api_round_trip(demo, tmp_path):
     assert client.get('/api/stats').json()['frames']['annotated'] == 1
     assert client.post('/api/export').json()['frames'] == {rows[0]['split']: 1}
     assert client.get('/api/frames/unknown').status_code == 422
+
+
+def test_closed_form_leave_one_out_matches_refitting_every_frame():
+    rng = np.random.default_rng(5)
+    for tilt, gain in ((0.0, 0.0), (0.5, 60.0)):
+        frames = [_kin(rng, axis_tilt=tilt) for _ in range(15)]
+        noisy = []
+        for k in frames:
+            boxes = _true_boxes(k, axis_gain=gain)
+            dx, dy = rng.normal(0, 6, 2)
+            noisy.append((k, [Box(b.tool, b.x1 + dx, b.y1 + dy, b.x2 + dx, b.y2 + dy) for b in boxes]))
+        for model in ('position', 'position_axis'):
+            samples = [(k, b) for k, boxes in noisy for b in boxes if b.tool == 'left_tool']
+            fast = KinematicsBoxModel.loo_error(samples, 'left_tool', model)
+            slow = KinematicsBoxModel.loo_error_bruteforce(samples, 'left_tool', model)
+            assert fast == pytest.approx(slow, rel=1e-6, abs=1e-6)
+
+
+def test_saves_are_versioned_so_a_stale_tab_cannot_overwrite(demo):
+    session, rows = demo
+    fid = rows[0]['id']
+    a = [{'tool': 'left_tool', 'x1': 10, 'y1': 10, 'x2': 60, 'y2': 50}]
+    b = [{'tool': 'left_tool', 'x1': 20, 'y1': 20, 'x2': 70, 'y2': 60}]
+    assert session.get(fid)['version'] == 0
+    assert session.save(fid, a, base_version=0)['version'] == 1
+    assert session.save(fid, a, base_version=0)['duplicate'] is True        # retry of the same save
+    with pytest.raises(ConflictError) as err:
+        session.save(fid, b, base_version=0)                               # second tab opened before the save
+    assert err.value.current['version'] == 1 and err.value.current['boxes'][0]['x1'] == 10
+    assert session.save(fid, b, base_version=1)['version'] == 2
+    assert session.save(fid, a, base_version=1, force=True)['version'] == 3
+    assert session.get(fid)['boxes'][0]['x1'] == 10
+    assert session.stats()['frames']['annotated'] == 1
+
+
+def test_old_databases_gain_the_version_column(tmp_path):
+    import sqlite3
+    db = tmp_path / 'old.db'
+    con = sqlite3.connect(db)
+    con.executescript("""CREATE TABLE annotations (frame_id TEXT PRIMARY KEY, boxes TEXT NOT NULL, prelabels TEXT NOT NULL,
+                         seconds REAL, annotator TEXT, saved_at REAL NOT NULL);""")
+    con.close()
+    AnnotationSession(str(db))
+    cols = {r[1] for r in sqlite3.connect(db).execute('PRAGMA table_info(annotations)')}
+    assert 'version' in cols
+
+
+def test_http_conflict_returns_the_stored_boxes(demo, tmp_path):
+    session, rows = demo
+    client = TestClient(create_app(session, tmp_path / 'yolo'))
+    fid = rows[0]['id']
+    box = {'tool': 'right_tool', 'x1': 300, 'y1': 200, 'x2': 360, 'y2': 250}
+    assert client.put(f'/api/frames/{fid}/annotation', json={'boxes': [box], 'base_version': 0}).json()['version'] == 1
+    moved = dict(box, x1=310, x2=370)
+    clash = client.put(f'/api/frames/{fid}/annotation', json={'boxes': [moved], 'base_version': 0})
+    assert clash.status_code == 409 and clash.json()['detail']['current']['boxes'][0]['x1'] == 300
+    forced = client.put(f'/api/frames/{fid}/annotation', json={'boxes': [moved], 'base_version': 0, 'force': True})
+    assert forced.json()['version'] == 2

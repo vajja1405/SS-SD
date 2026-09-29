@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type Box, type Handle, type Tool, TOOLS, clamp, describeModel, hitTest, isUsable, move, resize, toolLabel, upsert,
 } from './geometry';
+import { HttpError, clearDraft, json, loadDraft, saveDraft, withRetry } from './net';
 
 type ModelSummary = Record<string, { frames: number; model: string | null; loo_error_px: number | null }>;
 
@@ -15,8 +16,12 @@ interface Frame {
   prelabels: Box[];
   model: ModelSummary;
   boxes: Box[] | null;
+  version: number;
   progress: { done: number; total: number };
 }
+
+type SaveState = { kind: 'idle' } | { kind: 'saving' } | { kind: 'retrying'; attempt: number }
+  | { kind: 'failed'; message: string } | { kind: 'conflict'; version: number; boxes: Box[] | null };
 
 interface Stats {
   frames: { annotated: number; total: number };
@@ -32,14 +37,6 @@ type Drag =
   | { kind: 'move'; index: number; x0: number; y0: number; start: Box }
   | { kind: 'resize'; index: number; handle: Handle };
 
-async function json<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail ?? `${res.status} ${res.statusText}`);
-  }
-  return res.json() as Promise<T>;
-}
-
 export function App() {
   const [frame, setFrame] = useState<Frame | null>(null);
   const [finished, setFinished] = useState(false);
@@ -49,6 +46,8 @@ export function App() {
   const [selected, setSelected] = useState<number | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [message, setMessage] = useState('');
+  const [saveState, setSaveState] = useState<SaveState>({ kind: 'idle' });
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const canvas = useRef<HTMLCanvasElement>(null);
   const image = useRef<HTMLImageElement | null>(null);
@@ -73,8 +72,17 @@ export function App() {
       await img.decode();
       image.current = img;
       setFrame(f);
-      setBoxes(f.boxes ?? f.prelabels);
-      setFromPrelabel(new Set(f.boxes ? [] : f.prelabels.map((b) => b.tool)));
+      const draft = loadDraft(f.id, f.version);
+      if (draft) {
+        setBoxes(draft.boxes);
+        setFromPrelabel(new Set(draft.fromPrelabel));
+        setNotice('Restored boxes you had not saved yet.');
+      } else {
+        setBoxes(f.boxes ?? f.prelabels);
+        setFromPrelabel(new Set(f.boxes ? [] : f.prelabels.map((b) => b.tool)));
+        setNotice('');
+      }
+      setSaveState({ kind: 'idle' });
       setSelected(null);
       shownAt.current = performance.now();
       await loadStats();
@@ -84,6 +92,14 @@ export function App() {
   }, [loadStats]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Keep an unsaved draft on this device so a reload or crash does not lose work.
+  useEffect(() => {
+    if (!frame) return;
+    const unchanged = JSON.stringify(boxes) === JSON.stringify(frame.boxes ?? frame.prelabels);
+    if (unchanged) clearDraft(frame.id);
+    else saveDraft(frame.id, { boxes, fromPrelabel: [...fromPrelabel], baseVersion: frame.version });
+  }, [frame, boxes, fromPrelabel]);
 
   // Draw the frame and boxes.
   useEffect(() => {
@@ -154,19 +170,38 @@ export function App() {
     setBoxes((bs) => bs.filter((b) => isUsable(b)));
   };
 
-  const save = useCallback(async () => {
-    if (!frame) return;
+  const save = useCallback(async (force = false) => {
+    if (!frame || saveState.kind === 'saving' || saveState.kind === 'retrying') return;
     setError('');
+    setSaveState({ kind: 'saving' });
+    const seconds = Math.round((performance.now() - shownAt.current) / 100) / 10;
+    const body = JSON.stringify({ boxes, seconds, base_version: frame.version, force });
     try {
-      const seconds = Math.round((performance.now() - shownAt.current) / 100) / 10;
-      const res = await json<{ next_id: string | null }>(await fetch(`/api/frames/${encodeURIComponent(frame.id)}/annotation`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ boxes, seconds }),
-      }));
+      const res = await withRetry(
+        async () => json<{ next_id: string | null }>(await fetch(`/api/frames/${encodeURIComponent(frame.id)}/annotation`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body,
+        })),
+        undefined, undefined, (attempt) => setSaveState({ kind: 'retrying', attempt }));
+      clearDraft(frame.id);
       await load(res.next_id);
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof HttpError && e.status === 409) {
+        const cur = (e.detail as { current: { version: number; boxes: Box[] | null } }).current;
+        setSaveState({ kind: 'conflict', version: cur.version, boxes: cur.boxes });
+      } else {
+        setSaveState({ kind: 'failed', message: (e as Error).message });
+      }
     }
-  }, [boxes, frame, load]);
+  }, [boxes, frame, load, saveState.kind]);
+
+  const takeSaved = () => {
+    if (!frame || saveState.kind !== 'conflict') return;
+    clearDraft(frame.id);
+    setFrame({ ...frame, version: saveState.version, boxes: saveState.boxes });
+    setBoxes(saveState.boxes ?? []);
+    setFromPrelabel(new Set());
+    setSaveState({ kind: 'idle' });
+  };
 
   const removeSelected = useCallback(() => {
     if (selected === null) return;
@@ -244,6 +279,26 @@ export function App() {
                 </li>
               ))}
             </ul>
+            <p className="hint" data-testid="save-state" aria-live="polite">
+              {saveState.kind === 'saving' && 'Saving…'}
+              {saveState.kind === 'retrying' && `Connection problem, retrying (${saveState.attempt})…`}
+              {notice}
+            </p>
+            {saveState.kind === 'failed' && (
+              <p role="alert" className="error" data-testid="save-failed">
+                Not saved: {saveState.message}. Your boxes are kept on this device.{' '}
+                <button onClick={() => void save()}>Retry</button>
+              </p>
+            )}
+            {saveState.kind === 'conflict' && (
+              <div role="alert" className="error" data-testid="conflict">
+                <p>Someone saved this frame after you opened it.</p>
+                <div className="actions">
+                  <button className="secondary" onClick={takeSaved}>Load the saved boxes</button>
+                  <button onClick={() => void save(true)}>Keep mine and overwrite</button>
+                </div>
+              </div>
+            )}
             <div className="actions">
               <button onClick={() => void save()}>Save and next <kbd>Enter</kbd></button>
               <button className="secondary" onClick={removeSelected} disabled={selected === null}>Delete box <kbd>Del</kbd></button>

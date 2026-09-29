@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .session import AnnotationSession, ValidationError
+from .session import AnnotationSession, ConflictError, ValidationError
 
 UI_DIST = Path(__file__).resolve().parents[3] / 'annotation_ui' / 'dist'
 
@@ -25,6 +25,8 @@ class AnnotationIn(BaseModel):
     boxes: list[BoxIn]
     seconds: float | None = None
     annotator: str = ''
+    base_version: int | None = None
+    force: bool = False
 
 
 def create_app(session: AnnotationSession, export_dir: str | Path | None = None, demo_truth: dict | None = None) -> FastAPI:
@@ -35,6 +37,8 @@ def create_app(session: AnnotationSession, export_dir: str | Path | None = None,
             return fn(*args, **kwargs)
         except ValidationError as e:
             raise HTTPException(status_code=422, detail=str(e)) from e
+        except ConflictError as e:
+            raise HTTPException(status_code=409, detail={'message': str(e), 'current': e.current}) from e
 
     @app.get('/api/health')
     def health():
@@ -58,7 +62,8 @@ def create_app(session: AnnotationSession, export_dir: str | Path | None = None,
 
     @app.put('/api/frames/{frame_id}/annotation')
     def save(frame_id: str, body: AnnotationIn):
-        return guard(session.save, frame_id, [b.model_dump() for b in body.boxes], body.seconds, body.annotator)
+        return guard(session.save, frame_id, [b.model_dump() for b in body.boxes], body.seconds, body.annotator,
+                     body.base_version, body.force)
 
     @app.get('/api/stats')
     def stats():

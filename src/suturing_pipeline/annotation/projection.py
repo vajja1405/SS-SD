@@ -87,13 +87,36 @@ class KinematicsBoxModel:
 
     @classmethod
     def loo_error(cls, samples, tool: str, model: str) -> float | None:
-        """Leave-one-frame-out centre error in pixels (median)."""
+        """Leave-one-frame-out centre error in pixels (median).
+
+        For least squares the held-out residual has a closed form, e_i / (1 - h_ii) with h_ii the leverage from
+        the hat matrix, so this is one fit instead of n refits. Points with leverage ~1 (nothing else constrains
+        them) fall back to an explicit refit."""
+        if len(samples) < MODELS[model] + 1:
+            return None
+        A = np.array([tool_features(k, tool, model) for k, _ in samples])
+        Y = np.array([box.center for _, box in samples])
+        pinv = np.linalg.pinv(A)
+        resid = Y - A @ (pinv @ Y)
+        lev = np.einsum('ij,ji->i', A, pinv)
+        errs = []
+        for i in range(len(samples)):
+            if lev[i] < 1 - 1e-8:
+                errs.append(float(np.hypot(*(resid[i] / (1 - lev[i])))))
+            else:
+                W = cls._fit(samples[:i] + samples[i + 1:], tool, model)
+                pred = tool_features(samples[i][0], tool, model) @ W
+                errs.append(float(np.hypot(*(pred - np.array(samples[i][1].center)))))
+        return float(np.median(errs))
+
+    @classmethod
+    def loo_error_bruteforce(cls, samples, tool: str, model: str) -> float | None:
+        """Reference implementation (n refits), kept for tests."""
         if len(samples) < MODELS[model] + 1:
             return None
         errs = []
         for i in range(len(samples)):
-            train = samples[:i] + samples[i + 1:]
-            W = cls._fit(train, tool, model)
+            W = cls._fit(samples[:i] + samples[i + 1:], tool, model)
             pred = tool_features(samples[i][0], tool, model) @ W
             errs.append(float(np.hypot(*(pred - np.array(samples[i][1].center)))))
         return float(np.median(errs))

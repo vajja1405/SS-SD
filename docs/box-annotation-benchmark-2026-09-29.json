@@ -1,0 +1,33 @@
+{
+ "generated": "2026-09-29 10:22",
+ "machine": "arm64 Darwin 25.6.0, Python 3.14.3",
+ "queue": {
+  "frames": 2000,
+  "trial_groups": 5,
+  "annotated": 400,
+  "labeled_frames_per_group_at_end": 80
+ },
+ "storage": "SQLite file",
+ "load_frames_s": 0.03,
+ "get_frame_with_prelabels": {
+  "calls": 400,
+  "median_ms": 0.32,
+  "p95_ms": 0.56,
+  "max_ms": 2.77
+ },
+ "save_and_refit": {
+  "calls": 400,
+  "median_ms": 2.41,
+  "p95_ms": 4.12,
+  "max_ms": 10.59
+ },
+ "save_and_refit_last_50": {
+  "calls": 50,
+  "median_ms": 4.03,
+  "p95_ms": 4.67,
+  "max_ms": 10.59
+ },
+ "stats_ms": 3.4,
+ "prelabel_acceptance_on_synthetic_frames": 1.0,
+ "note": "Synthetic frames with a known linear camera: latency only; acceptance here says nothing about real frames."
+}

@@ -379,6 +379,20 @@ python scripts/annotate_boxes.py --demo          # synthetic frames with a known
 cd annotation_ui && npm install && npm run build # UI at http://127.0.0.1:8780
 ```
 
+**Reliability.**
+- **Versioned saves:** each save carries the version the annotator loaded. A stale tab gets HTTP 409 with the
+  stored boxes and chooses to load them or overwrite. Re-sending identical boxes, as a retry does, is a no-op.
+- **Drafts and retries:** unsaved boxes stay as an on-device draft through reloads. Failed saves are retried with
+  backoff.
+- **Faster error check:** the leave-one-out check uses the closed-form hat-matrix identity (one fit instead of one
+  per frame), and a test confirms it matches refitting.
+- **Large queue:** `scripts/benchmark_annotation.py` loads 2,000 frames across
+  5 trials and annotates 400. At the 95th percentile, loading a
+  frame with pre-labels takes 0.56 ms and saving with a refit takes
+  4.12 ms (`docs/`).
+- **Browser tests:** `annotation_ui/e2e/reliability.spec.ts` drops the response after the server stored a save,
+  reloads with unsaved boxes, and has two tabs save the same frame.
+
 Tests: `tests/test_box_annotation.py` covers the projection recovering a known camera, model selection,
 off-screen handling, acceptance and timing metrics, validation, YOLO export, and frame/kinematics pairing
 on a generated video. `annotation_ui/src/geometry.test.ts` covers box geometry. `annotation_ui/e2e/`

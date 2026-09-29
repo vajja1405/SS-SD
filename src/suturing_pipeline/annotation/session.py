@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS frames (id TEXT PRIMARY KEY, grp TEXT NOT NULL, trial
                                    split TEXT NOT NULL DEFAULT 'train', pos INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS shown (frame_id TEXT PRIMARY KEY, prelabels TEXT NOT NULL, model TEXT, shown_at REAL);
 CREATE TABLE IF NOT EXISTS annotations (frame_id TEXT PRIMARY KEY, boxes TEXT NOT NULL, prelabels TEXT NOT NULL,
-                                        seconds REAL, annotator TEXT, saved_at REAL NOT NULL);
+                                        seconds REAL, annotator TEXT, saved_at REAL NOT NULL,
+                                        version INTEGER NOT NULL DEFAULT 1);
 """
 ACCEPT_IOU = 0.5          # pre-label counts as usable
 UNCHANGED_IOU = 0.95      # pre-label saved essentially as shown
@@ -30,6 +31,13 @@ UNCHANGED_IOU = 0.95      # pre-label saved essentially as shown
 
 class ValidationError(ValueError):
     pass
+
+
+class ConflictError(ValueError):
+    """Someone saved this frame after the caller loaded it (HTTP 409); `current` is what is stored now."""
+    def __init__(self, message: str, current: dict):
+        super().__init__(message)
+        self.current = current
 
 
 def _boxes(raw) -> list[Box]:
@@ -52,6 +60,9 @@ class AnnotationSession:
     def __init__(self, db_path: str = ':memory:', image_size: tuple[int, int] = (640, 480)):
         self.db = sqlite3.connect(db_path, check_same_thread=False)
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute('PRAGMA table_info(annotations)')}
+        if 'version' not in cols:                         # databases created before versioned saves
+            self.db.execute('ALTER TABLE annotations ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
         self.lock = threading.RLock()
         self.image_size = image_size
         self.models: dict[str, KinematicsBoxModel] = {}
@@ -112,7 +123,7 @@ class AnnotationSession:
             f = self._frame(frame_id)
             if f['grp'] not in self.models:
                 self._refit(f['grp'])
-            saved = self.db.execute('SELECT boxes FROM annotations WHERE frame_id = ?', (frame_id,)).fetchone()
+            saved = self.db.execute('SELECT boxes, version FROM annotations WHERE frame_id = ?', (frame_id,)).fetchone()
             pre = [b.as_dict() for b in self.models[f['grp']].predict(f['kin'])]
             if saved is None:           # remember exactly what the annotator was shown
                 with self.db:
@@ -122,19 +133,37 @@ class AnnotationSession:
             return {'id': f['id'], 'trial': f['trial'], 'capture': f['capture'], 'frame_index': f['frame_index'],
                     'width': self.image_size[0], 'height': self.image_size[1], 'prelabels': pre,
                     'model': self.fit_summary[f['grp']], 'boxes': json.loads(saved[0]) if saved else None,
+                    'version': saved[1] if saved else 0,
                     'progress': {'done': done, 'total': total}}
 
-    def save(self, frame_id: str, boxes, seconds: float | None = None, annotator: str = '') -> dict:
+    def save(self, frame_id: str, boxes, seconds: float | None = None, annotator: str = '',
+             base_version: int | None = None, force: bool = False) -> dict:
+        """Save boxes for a frame. `base_version` is the version the caller loaded (0 = never saved). If someone saved
+        since, this is a conflict unless `force`. Re-sending the boxes already stored (a retry) changes nothing."""
         with self.lock:
             f = self._frame(frame_id)
             final = _boxes(boxes)
+            payload = json.dumps([b.as_dict() for b in final])
+            row = self.db.execute('SELECT boxes, version FROM annotations WHERE frame_id = ?', (frame_id,)).fetchone()
+            current = row[1] if row else 0
+            if row and row[0] == payload:
+                return {'saved': True, 'duplicate': True, 'version': current, 'next_id': self.next_frame_id(),
+                        'model': self.fit_summary.get(f['grp'])}
+            if base_version is not None and base_version != current and not force:
+                raise ConflictError('this frame was saved after you opened it',
+                                    {'version': current, 'boxes': json.loads(row[0]) if row else None})
             shown = self.db.execute('SELECT prelabels FROM shown WHERE frame_id = ?', (frame_id,)).fetchone()
             with self.db:
-                self.db.execute('INSERT OR REPLACE INTO annotations VALUES (?,?,?,?,?,?)',
-                                (frame_id, json.dumps([b.as_dict() for b in final]), shown[0] if shown else '[]',
-                                 seconds, annotator, time.time()))
+                if row:                                   # keep the first save's pre-label comparison and timing
+                    self.db.execute('UPDATE annotations SET boxes = ?, annotator = ?, saved_at = ?, version = ? '
+                                    'WHERE frame_id = ?', (payload, annotator, time.time(), current + 1, frame_id))
+                else:
+                    self.db.execute('INSERT INTO annotations (frame_id, boxes, prelabels, seconds, annotator, saved_at, '
+                                    'version) VALUES (?,?,?,?,?,?,1)',
+                                    (frame_id, payload, shown[0] if shown else '[]', seconds, annotator, time.time()))
             self._refit(f['grp'])
-            return {'saved': True, 'next_id': self.next_frame_id(), 'model': self.fit_summary[f['grp']]}
+            return {'saved': True, 'version': current + 1, 'next_id': self.next_frame_id(),
+                    'model': self.fit_summary[f['grp']]}
 
     def progress(self) -> tuple[int, int]:
         done = self.db.execute('SELECT COUNT(*) FROM annotations').fetchone()[0]
