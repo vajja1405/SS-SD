@@ -114,6 +114,9 @@ evaluating the generator.
 - `scripts/prepare_labeling_set.py`, `scripts/train_yolo.py`,
   `scripts/run_detection.py` — YOLO labeling bootstrap + detector
   training + detection export.
+- `scripts/annotate_boxes.py` + `annotation_ui/` — instrument box
+  annotation with kinematics-projected pre-labels; exports YOLO labels
+  for `train_yolo.py` (see below).
 - `scripts/compute_kinematics.py` — velocity / acceleration / jerk
   features.
 - `scripts/run_synthesis.py`, `scripts/launch_dashboard.py` — original
@@ -134,6 +137,7 @@ src/suturing_pipeline/
     sd_sampler.py             # load ckpt once, call .sample() per frame
     controlnet_pipeline.py    # (legacy scaffold)
   detection/                  # YOLO labeling + training + export (secondary)
+  annotation/                 # box annotation: kinematics pre-labels, session metrics, YOLO export
   kinematics/                 # feature engineering; motion_columns (append to kin)
   sequence/                   # temporal model components (secondary)
   dashboard/                  # original comparison dashboard (secondary)
@@ -344,3 +348,40 @@ seeded weights: size and latency are properties of the architecture, while outpu
 `--checkpoint` on the trained encoder before relying on INT8 in generation. The U-Net (the dominant cost) and TensorRT
 on an NVIDIA GPU are the next step and were not run here. `tests/test_encoder_export.py` checks export parity and INT8
 fidelity on a small encoder.
+
+## Instrument box annotation with kinematics pre-labels (September 28, 2026)
+
+The YOLO branch above needs instrument boxes, and drawing them by hand is slow. JIGSAWS records the robot's
+kinematics for every video frame but ships no camera calibration. `scripts/annotate_boxes.py` uses the
+kinematics anyway: after an annotator has boxed a few frames of a trial, it learns where each instrument's
+jaw appears in the image from the tool-tip position and shaft direction, then pre-labels the remaining
+frames. This is the same idea driving datasets use when they project LiDAR points into camera images.
+
+- **Model** (`src/suturing_pipeline/annotation/projection.py`). For each instrument, the box centre is a linear
+  function of the tool-tip position (the shaft axis becomes a candidate once 7 frames are labeled), with a per-instrument
+  offset. The box size is the median of the annotator's boxes. Models are compared by leave-one-frame-out
+  error, and the UI shows that error ("about N px off on held-out frames"). The fit is per trial and camera,
+  because the camera can move between sessions, and it reruns after every saved frame. In these videos the
+  kinematics' "slave left" arm appears on the right of the image, and the mapping accounts for that.
+- **Measurement** (`session.py`). Every pre-label shown is stored next to the box the annotator saved. The
+  quality panel reports the share of pre-labels kept (IoU ≥ 0.5), the median IoU and centre error, the
+  boxes deleted, and the median seconds per frame with and without pre-labels.
+- **UI** (`annotation_ui/`, React + TypeScript on a canvas). Drag to draw; drag inside a box to move it and
+  a corner to resize; `1`/`2` choose the instrument; `Delete` removes a box; `Enter` saves and loads the
+  next frame. Pre-labels are dashed until edited.
+- **Export.** Saved boxes are written as `images/<split>/` and `labels/<split>/` in YOLO format (classes
+  `left_tool`, `right_tool`), the layout `scripts/train_yolo.py` expects. Splits are assigned per trial
+  with the same hash as `prepare_labeling_set.py`.
+
+```bash
+python scripts/annotate_boxes.py --jigsaws /path/to/Suturing --trials B001,C001 --db outputs/annotation/boxes.db
+python scripts/annotate_boxes.py --demo          # synthetic frames with a known camera, no dataset needed
+cd annotation_ui && npm install && npm run build # UI at http://127.0.0.1:8780
+```
+
+Tests: `tests/test_box_annotation.py` covers the projection recovering a known camera, model selection,
+off-screen handling, acceptance and timing metrics, validation, YOLO export, and frame/kinematics pairing
+on a generated video. `annotation_ui/src/geometry.test.ts` covers box geometry. `annotation_ui/e2e/`
+has a Playwright flow on Chromium, Firefox and WebKit: it draws boxes with the mouse, accepts pre-labels
+with the keyboard, moves, resizes and deletes a box, and exports. The `Box annotation` workflow runs
+all of it in CI.

@@ -1,0 +1,46 @@
+name: Box annotation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install annotation dependencies
+        run: pip install numpy pandas opencv-python-headless fastapi uvicorn httpx pytest
+      - name: Annotation tests
+        run: pytest tests/test_box_annotation.py -v
+
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: annotation_ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install server dependencies
+        run: pip install numpy pandas opencv-python-headless fastapi uvicorn
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: annotation_ui/package-lock.json
+      - name: Build and unit-test the UI
+        run: |
+          npm ci
+          npm run build
+          npm test
+      - name: Cross-browser end-to-end test (Chromium, Firefox, WebKit)
+        run: |
+          npx playwright install --with-deps chromium firefox webkit
+          PYTHON=python npx playwright test

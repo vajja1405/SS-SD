@@ -1,0 +1,29 @@
+:root { --bg: #f5f6f8; --panel: #fff; --ink: #1b2430; --muted: #5a6776; --line: #d8dde3; --accent: #1f6feb; --on-accent: #fff; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #10161d; --panel: #18212b; --ink: #edf1f5; --muted: #a0adba; --line: #2c3a47; --accent: #6ea8ff; --on-accent: #0b1422; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+.shell { max-width: 1080px; margin: 0 auto; padding: 1rem; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: .4rem 1rem; }
+h1 { font-size: 1.25rem; margin: 0 0 .6rem; }
+.meta, .hint { color: var(--muted); font-size: .88rem; margin: .2rem 0; }
+.work { display: grid; grid-template-columns: minmax(0, 640px) minmax(220px, 1fr); gap: 1rem; align-items: start; }
+@media (max-width: 860px) { .work { grid-template-columns: 1fr; } }
+canvas { width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; cursor: crosshair; touch-action: none; background: #000; }
+.side { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .8rem; display: grid; gap: .6rem; }
+.tools { display: flex; flex-wrap: wrap; gap: .4rem; }
+button { font: inherit; padding: .45rem .8rem; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); cursor: pointer; }
+button.secondary, .tools button { background: transparent; color: var(--ink); border-color: var(--line); border-width: 2px; }
+.tools button[aria-checked="true"] { font-weight: 600; background: var(--bg); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+kbd { font: .72rem ui-monospace, monospace; border: 1px solid currentColor; border-radius: 3px; padding: 0 .3rem; margin-left: .3rem; opacity: .8; }
+.boxes { list-style: none; padding: 0; margin: 0; display: grid; gap: .3rem; font-size: .88rem; }
+.boxes li.selected { font-weight: 600; }
+.actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: .6rem; margin-top: 1rem; align-items: center; }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: .7rem; display: grid; }
+.tile strong { font-size: 1.3rem; }
+.tile span { color: var(--muted); font-size: .8rem; }
+.error { color: #c0392b; }

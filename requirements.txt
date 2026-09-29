@@ -21,6 +21,11 @@ librosa
 jiwer
 ultralytics
 pytest
+
+# Box annotation server (scripts/annotate_boxes.py)
+fastapi
+uvicorn
+httpx
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
