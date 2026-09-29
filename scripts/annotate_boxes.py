@@ -33,9 +33,11 @@ def main() -> None:
     ap.add_argument('--frames-dir', default='outputs/annotation/frames')
     ap.add_argument('--export-dir', default='outputs/annotation/yolo')
     ap.add_argument('--port', type=int, default=8780)
+    ap.add_argument('--ab', action='store_true',
+                    help='alternate showing and hiding pre-labels once the model is ready (pilot measurement)')
     args = ap.parse_args()
 
-    session = AnnotationSession(args.db)
+    session = AnnotationSession(args.db, ab_test=args.ab)
     truth = None
     if args.demo:
         rows = demo_frames(Path(tempfile.mkdtemp(prefix='sssd_demo_')))

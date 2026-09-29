@@ -17,6 +17,7 @@ interface Frame {
   model: ModelSummary;
   boxes: Box[] | null;
   version: number;
+  condition?: 'learning' | 'shown' | 'hidden';
   progress: { done: number; total: number };
 }
 
@@ -267,7 +268,9 @@ export function App() {
               ))}
             </div>
             <p className="hint" data-testid="model">
-              {frame.prelabels.length ? 'Dashed boxes are pre-labels from the robot kinematics. ' : 'No pre-labels yet. '}
+              {frame.condition === 'hidden'
+                ? 'Pre-labels are hidden on this frame to measure their accuracy: draw the boxes yourself. '
+                : frame.prelabels.length ? 'Dashed boxes are pre-labels from the robot kinematics. ' : 'No pre-labels yet. '}
               {describeModel(frame.model)}
             </p>
             <ul className="boxes" data-testid="boxes">

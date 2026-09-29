@@ -204,3 +204,58 @@ def test_http_conflict_returns_the_stored_boxes(demo, tmp_path):
     assert clash.status_code == 409 and clash.json()['detail']['current']['boxes'][0]['x1'] == 300
     forced = client.put(f'/api/frames/{fid}/annotation', json={'boxes': [moved], 'base_version': 0, 'force': True})
     assert forced.json()['version'] == 2
+
+
+def test_concurrent_saves_and_reads_share_one_connection_safely(demo):
+    import threading
+
+    session, rows = demo
+    errors = []
+
+    def writer(chunk):
+        try:
+            for r in chunk:
+                f = session.get(r['id'])
+                session.save(r['id'], demo_truth(r), seconds=1.0, base_version=f['version'])
+        except Exception as e:                      # noqa: BLE001
+            errors.append(repr(e))
+
+    def reader():
+        try:
+            for _ in range(40):
+                session.stats(); session.progress(); session.next_frame_id()
+        except Exception as e:                      # noqa: BLE001
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=writer, args=(rows[i::3],)) for i in range(3)] + \
+              [threading.Thread(target=reader) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert session.stats()['frames']['annotated'] == len(rows)
+
+
+def test_ab_mode_hides_every_other_prelabel_and_measures_it_unbiased(tmp_path):
+    rows = demo_frames(tmp_path / 'frames', n=14)
+    session = AnnotationSession(ab_test=True)
+    session.add_frames(rows)
+    conditions = []
+    for r in rows:
+        f = session.get(r['id'])
+        conditions.append(f['condition'])
+        if f['condition'] == 'hidden':
+            assert f['prelabels'] == []
+            assert session.get(r['id'])['condition'] == 'hidden'          # a reload keeps the condition
+        session.save(r['id'], demo_truth(r), seconds=5.0 if f['condition'] == 'hidden' else 2.0,
+                     base_version=f['version'])
+    assert conditions[:4] == ['learning'] * 4
+    assert conditions[4:] == ['shown', 'hidden'] * 5
+    s = session.stats()
+    assert s['ab_test'] is True
+    assert s['prelabels']['compared'] == 10 and s['hidden_prelabels']['compared'] == 10     # 5 frames x 2 tools each
+    assert s['hidden_prelabels']['median_iou'] > 0.99                                      # exact synthetic camera
+    assert s['seconds_per_frame']['hidden_prelabels'] == {'frames': 5, 'median': 5.0}
+    assert s['seconds_per_frame']['with_prelabels'] == {'frames': 5, 'median': 2.0}
+    assert s['seconds_per_frame']['learning_no_model_yet']['frames'] == 4

@@ -393,6 +393,15 @@ cd annotation_ui && npm install && npm run build # UI at http://127.0.0.1:8780
 - **Browser tests:** `annotation_ui/e2e/reliability.spec.ts` drops the response after the server stored a save,
   reloads with unsaved boxes, and has two tabs save the same frame.
 
+**Pilot measurement (`--ab`).**
+- **How it works:** once a trial's model can pre-label, frames alternate between showing the pre-labels and
+  hiding them. Hidden pre-labels are still computed and stored.
+- **Accuracy:** on hidden frames, the boxes are drawn without seeing the model's guess, which gives pre-label
+  accuracy (IoU, centre error) without anchoring bias.
+- **Time:** shown and hidden frames from the same trials give a fair time comparison. The first learning frames
+  are reported separately, and a reload keeps a frame's condition.
+- **Results:** none are reported until a real annotation session exists.
+
 Tests: `tests/test_box_annotation.py` covers the projection recovering a known camera, model selection,
 off-screen handling, acceptance and timing metrics, validation, YOLO export, and frame/kinematics pairing
 on a generated video. `annotation_ui/src/geometry.test.ts` covers box geometry. `annotation_ui/e2e/`
